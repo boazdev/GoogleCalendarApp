@@ -32,9 +32,11 @@ namespace GoogleCalendarApp.Pages
         protected void Page_Load(object sender, EventArgs e)
         {
             string code = Request.QueryString["code"];
+
             if (!IsPostBack)
             {
                 txtStartDate.Text = DateTime.Now.ToString("yyyy-MM-dd");
+
                 if (!string.IsNullOrEmpty(code))
                 {
                     string clientId = GoogleApiConfig.Instance.ClientId;
@@ -45,18 +47,19 @@ namespace GoogleCalendarApp.Pages
                     Response.Redirect("~/Pages/Calendar.aspx");
                     return;
                 }
-            }
 
-            if (Session["access_token"] != null)
-            {
-                var events = GetUpcomingEvents(Session["access_token"].ToString(), DateTime.Now, "month");
-                var data = MapEventsToDto(events);
-                gvEvents.DataSource = data;
-                gvEvents.DataBind();
+                if (Session["access_token"] != null)
+                {
+                    LoadCalendar(DateTime.Now, "month");
+                }
+                else
+                {
+                    Response.Redirect("~/Pages/Login.aspx");
+                }
             }
-            else
+            else if (Session["access_token"] == null)
             {
-                Response.Redirect("~/Pages/Login.aspx");
+                    Response.Redirect("~/Pages/Login.aspx");
             }
         }
         /// <summary>
@@ -99,28 +102,34 @@ namespace GoogleCalendarApp.Pages
 
         private IList<Google.Apis.Calendar.v3.Data.Event> GetUpcomingEvents(string accessToken, DateTime startDate, string viewMode)
         {
-            var credential = GoogleCredential.FromAccessToken(accessToken);
-
-            var service = new CalendarService(new BaseClientService.Initializer()
+            try
             {
-                HttpClientInitializer = credential,
-                ApplicationName = "GoogleCalendarApp"
-            });
+                var credential = GoogleCredential.FromAccessToken(accessToken);
 
-            var request = service.Events.List("primary");
-            request.TimeMinDateTimeOffset = new DateTimeOffset(startDate);
-            request.ShowDeleted = false;
-            request.SingleEvents = true;
+                var service = new CalendarService(new BaseClientService.Initializer()
+                {
+                    HttpClientInitializer = credential,
+                    ApplicationName = "GoogleCalendarApp"
+                });
 
-            if (viewMode == "week")
-                request.TimeMaxDateTimeOffset = new DateTimeOffset(startDate.AddDays(7));
-            else if (viewMode == "month")
-                request.TimeMaxDateTimeOffset = new DateTimeOffset(startDate.AddMonths(1));
+                var request = service.Events.List("primary");
+                request.TimeMinDateTimeOffset = new DateTimeOffset(startDate);
+                request.ShowDeleted = false;
+                request.SingleEvents = true;
 
-            request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
+                if (viewMode == "week")
+                    request.TimeMaxDateTimeOffset = new DateTimeOffset(startDate.AddDays(7));
+                else if (viewMode == "month")
+                    request.TimeMaxDateTimeOffset = new DateTimeOffset(startDate.AddMonths(1));
 
-            var events = request.Execute().Items;
-            return events;
+                request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
+                return request.Execute().Items;
+            }
+            catch (Exception e)
+            {
+                Response.Redirect("~/Pages/Login.aspx");
+                return new List<Google.Apis.Calendar.v3.Data.Event>();
+            }
         }
 
         /// <summary>
@@ -137,14 +146,9 @@ namespace GoogleCalendarApp.Pages
                 return;
             }
 
-            DateTime startDate;
-            DateTime.TryParse(txtStartDate.Text, out startDate);
-
+            DateTime.TryParse(txtStartDate.Text, out var startDate);
             string viewMode = ddlViewMode.SelectedValue;
-            var events = GetUpcomingEvents(Session["access_token"].ToString(), startDate, viewMode);
-            var data = MapEventsToDto(events);
-            gvEvents.DataSource = data;
-            gvEvents.DataBind();
+            LoadCalendar(startDate, viewMode);
         }
 
         /// <summary>
@@ -164,6 +168,14 @@ namespace GoogleCalendarApp.Pages
                     : ev.Start.Date,
                 Summary = ev.Summary
             }).ToList();
+        }
+
+        private void LoadCalendar(DateTime startDate, string viewMode)
+        {
+            var events = GetUpcomingEvents(Session["access_token"].ToString(), startDate, viewMode);
+            var data = MapEventsToDto(events);
+            gvEvents.DataSource = data;
+            gvEvents.DataBind();
         }
 
         /// <summary>

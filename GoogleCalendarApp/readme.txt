@@ -1,0 +1,2 @@
+﻿Rebuild solution
+run
