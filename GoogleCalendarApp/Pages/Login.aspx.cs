@@ -26,19 +26,23 @@ namespace GoogleCalendarApp.Pages
         {
 
         }
+        /// <summary>
+        /// Handles login redirect to Google OAuth
+        /// </summary>
+        /// <param name="sender">The button clicked</param>
+        /// <param name="e">Event arguments</param>
         protected void btnLogin_Click(object sender, EventArgs e)
         {
             string clientId = GoogleApiConfig.Instance.ClientId;
-            string clientSecret = GoogleApiConfig.Instance.ClientSecret;
-            //your redirection url  
-            string redirectUri = "https://localhost:44300/Pages/Calendar.aspx";
+            string redirectUri = GoogleApiConfig.Instance.RedirectUri;
             string authUrl = "https://accounts.google.com/o/oauth2/v2/auth" +
-        "?scope=" + HttpUtility.UrlEncode("https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events") +
-        "&access_type=online" +
-        "&include_granted_scopes=true" +
-        "&response_type=code" +
-        "&redirect_uri=" + HttpUtility.UrlEncode(redirectUri) +
-        "&client_id=" + clientId;
+            "?scope=" + HttpUtility.UrlEncode("https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events") +
+            "&access_type=online" +
+            "&include_granted_scopes=true" +
+            "&response_type=code" +
+            "&redirect_uri=" + HttpUtility.UrlEncode(redirectUri) +
+            "&client_id=" + clientId +
+            "&prompt=consent";
             Response.Redirect(authUrl);
         }
     }

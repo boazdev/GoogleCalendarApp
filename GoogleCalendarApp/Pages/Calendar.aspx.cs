@@ -5,84 +5,68 @@ using System.Net.Http;
 using System.Web;
 using System.Web.UI;
 using System.Web.UI.WebControls;
-
 using Google.Apis.Auth.OAuth2;
-using Google.Apis.Auth.OAuth2.Requests;
-using Google.Apis.Calendar.v3.Data;
 using GoogleCalendarApp.Services;
-using Google.Apis.Auth.OAuth2;
-using Google.Apis.Auth.OAuth2.Flows;
 using Google.Apis.Calendar.v3;
 using Google.Apis.Services;
-using System.Net.Http;
 using System.Diagnostics;
 using Newtonsoft.Json;
 using GoogleCalendarApp.Models.Responses;
+using System.Web.Mvc;
+using GoogleCalendarApp.Models.Dto;
 namespace GoogleCalendarApp.Pages
 {
+    /// <summary>
+    /// Code-behind for the Calendar page. Handles Google OAuth authentication,
+    /// token exchange, event retrieval, and session management.
+    /// </summary>
     public partial class Calendar : System.Web.UI.Page
     {
+        /// <summary>
+        /// Handles the Page Load event. If a Google OAuth code is present,
+        /// exchanges it for an access token and stores it in session.
+        /// Otherwise, attempts to fetch calendar events using the existing session token.
+        /// </summary>
+        /// <param name="sender">The source of the page load event.</param>
+        /// <param name="e">Event data associated with the page load.</param>
         protected void Page_Load(object sender, EventArgs e)
         {
-            /*if (!IsPostBack)
-            {
-                var events = GoogleCalendarService.GetUpcomingEvents();
-                var data = events.Select(ev => new
-                {
-                    Start = ev.Start.DateTimeDateTimeOffset.HasValue ? ev.Start.DateTimeDateTimeOffset.Value.ToString("g") : ev.Start.Date,
-                    Summary = ev.Summary
-                }).ToList();
-
-                gvEvents.DataSource = data;
-                gvEvents.DataBind();
-            }*/
             string code = Request.QueryString["code"];
-            if (!string.IsNullOrEmpty(code))
+            if (!IsPostBack)
             {
-                string clientId = GoogleApiConfig.Instance.ClientId;
-                string clientSecret = GoogleApiConfig.Instance.ClientSecret;
-                string redirectUri = GoogleApiConfig.Instance.RedirectUri;
-
-                //var token = ExchangeCodeForToken(code, clientId, clientSecret, redirectUri);
-                // Session["access_token"] = token.AccessToken;
-                Debug.Print("Redirect Uri: " + redirectUri);
-                Debug.Print("Code: " + code);
-                var token = ExchangeCodeForToken(code, clientId, clientSecret, redirectUri);
-                Debug.Print($"access token : {token.access_token}, refresh token: {token.refresh_token}");
-                Session["access_token"] = token.access_token;
-                var events = GetUpcomingEvents(token.access_token);
-                var data = events.Select(ev => new
+                txtStartDate.Text = DateTime.Now.ToString("yyyy-MM-dd");
+                if (!string.IsNullOrEmpty(code))
                 {
-                    Start = ev.Start.DateTimeDateTimeOffset.HasValue
-                        ? ev.Start.DateTimeDateTimeOffset.Value.ToString("g")
-                        : ev.Start.Date,
-                    Summary = ev.Summary
-                }).ToList();
-
-                gvEvents.DataSource = data;
-                gvEvents.DataBind();
-                // Display `events` or bind to a repeater/grid
+                    string clientId = GoogleApiConfig.Instance.ClientId;
+                    string clientSecret = GoogleApiConfig.Instance.ClientSecret;
+                    string redirectUri = GoogleApiConfig.Instance.RedirectUri;
+                    var token = ExchangeCodeForToken(code, clientId, clientSecret, redirectUri);
+                    Session["access_token"] = token.AccessToken;
+                    Response.Redirect("~/Pages/Calendar.aspx");
+                    return;
+                }
             }
-            else if (Session["access_token"] != null)
-            {
-                var events = GetUpcomingEvents(Session["access_token"].ToString());
-                var data = events.Select(ev => new
-                {
-                    Start = ev.Start.DateTimeDateTimeOffset.HasValue
-                        ? ev.Start.DateTimeDateTimeOffset.Value.ToString("g")
-                        : ev.Start.Date,
-                    Summary = ev.Summary
-                }).ToList();
 
+            if (Session["access_token"] != null)
+            {
+                var events = GetUpcomingEvents(Session["access_token"].ToString(), DateTime.Now, "month");
+                var data = MapEventsToDto(events);
                 gvEvents.DataSource = data;
                 gvEvents.DataBind();
-                // Display `events` or bind to a repeater/grid
             }
             else
             {
-                Response.Redirect("~/Login.aspx");
+                Response.Redirect("~/Pages/Login.aspx");
             }
         }
+        /// <summary>
+        /// Exchanges an authorization code for an access token by calling the Google OAuth2 token endpoint.
+        /// </summary>
+        /// <param name="code">The authorization code returned by Google after user consent.</param>
+        /// <param name="clientId">The application's client ID.</param>
+        /// <param name="clientSecret">The application's client secret.</param>
+        /// <param name="redirectUri">The redirect URI registered with the Google API Console.</param>
+        /// <returns>A <see cref="TokenResponse"/> object containing the access token and related information.</returns>
         public static TokenResponse ExchangeCodeForToken(string code, string clientId, string clientSecret, string redirectUri)
         {
             using (var client = new HttpClient())
@@ -105,7 +89,15 @@ namespace GoogleCalendarApp.Pages
             }
         }
 
-        private IList<Google.Apis.Calendar.v3.Data.Event> GetUpcomingEvents(string accessToken)
+        /// <summary>
+        /// Retrieves upcoming calendar events for the authenticated user based on the specified date and view mode.
+        /// </summary>
+        /// <param name="accessToken">The OAuth2 access token used to authorize API requests.</param>
+        /// <param name="startDate">The start date for retrieving events.</param>
+        /// <param name="viewMode">The view mode, either "week" or "month", which determines the time range.</param>
+        /// <returns>A list of <see cref="Google.Apis.Calendar.v3.Data.Event"/> items.</returns>
+
+        private IList<Google.Apis.Calendar.v3.Data.Event> GetUpcomingEvents(string accessToken, DateTime startDate, string viewMode)
         {
             var credential = GoogleCredential.FromAccessToken(accessToken);
 
@@ -116,14 +108,75 @@ namespace GoogleCalendarApp.Pages
             });
 
             var request = service.Events.List("primary");
-            request.TimeMinDateTimeOffset = DateTimeOffset.UtcNow;
+            request.TimeMinDateTimeOffset = new DateTimeOffset(startDate);
             request.ShowDeleted = false;
             request.SingleEvents = true;
-            request.MaxResults = 10;
+
+            if (viewMode == "week")
+                request.TimeMaxDateTimeOffset = new DateTimeOffset(startDate.AddDays(7));
+            else if (viewMode == "month")
+                request.TimeMaxDateTimeOffset = new DateTimeOffset(startDate.AddMonths(1));
+
             request.OrderBy = EventsResource.ListRequest.OrderByEnum.StartTime;
 
             var events = request.Execute().Items;
             return events;
+        }
+
+        /// <summary>
+        /// Handles the Filter button click event. Fetches and displays calendar events
+        /// based on the selected start date and view mode.
+        /// </summary>
+        /// <param name="sender">The source of the event (Filter button).</param>
+        /// <param name="e">Event data associated with the button click.</param>
+        protected void btnFilter_Click(object sender, EventArgs e)
+        {
+            if (Session["access_token"] == null)
+            {
+                Response.Redirect("~/Pages/Login.aspx");
+                return;
+            }
+
+            DateTime startDate;
+            DateTime.TryParse(txtStartDate.Text, out startDate);
+
+            string viewMode = ddlViewMode.SelectedValue;
+            var events = GetUpcomingEvents(Session["access_token"].ToString(), startDate, viewMode);
+            var data = MapEventsToDto(events);
+            gvEvents.DataSource = data;
+            gvEvents.DataBind();
+        }
+
+        /// <summary>
+        /// Transforms a list of Google Calendar events into a simplified list of DTOs
+        /// containing formatted start time and summary.
+        /// </summary>
+        /// <param name="events">The list of Google Calendar events to transform.</param>
+        /// <returns>
+        /// A list of <see cref="CalendarEventDto"/> containing human-readable start times and summaries.
+        /// </returns>
+        private List<CalendarEventDto> MapEventsToDto(IEnumerable<Google.Apis.Calendar.v3.Data.Event> events)
+        {
+            return events.Select(ev => new CalendarEventDto
+            {
+                Start = ev.Start.DateTimeDateTimeOffset.HasValue
+                    ? ev.Start.DateTimeDateTimeOffset.Value.ToString("g")
+                    : ev.Start.Date,
+                Summary = ev.Summary
+            }).ToList();
+        }
+
+        /// <summary>
+        /// Handles the Logout button click event. Clears the user session and abandons it.
+        /// </summary>
+        /// <param name="sender">The source of the event (Logout button).</param>
+        /// <param name="e">Event data associated with the button click.</param>
+        protected void btnLogout_Click(object sender, EventArgs e)
+        {
+            Session.Clear();
+            Session.RemoveAll();
+            Session.Abandon();
+            Response.Redirect("~/Pages/Login.aspx");
         }
     }
 }
